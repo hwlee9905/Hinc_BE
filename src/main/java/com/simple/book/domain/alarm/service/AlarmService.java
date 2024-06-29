@@ -6,7 +6,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.config.KafkaListenerContainerFactory;
 import org.springframework.kafka.core.KafkaAdmin;
@@ -26,41 +25,29 @@ import com.simple.book.domain.alarm.repository.AlarmUrlRepository;
 import com.simple.book.domain.member.repository.MemberRepository;
 import com.simple.book.domain.user.entity.User;
 import com.simple.book.domain.user.repository.UserRepository;
+import com.simple.book.global.advice.ResponseMessage;
+import com.simple.book.global.exception.UnknownException;
+
+import lombok.RequiredArgsConstructor;
 
 @Service
+@RequiredArgsConstructor
 public class AlarmService {
-	
+	// kafka
 	private final KafkaTemplate<String, String> kafkaTemplate;
-	
 	private final KafkaAdmin kafkaAdmin;
+	private final KafkaListenerContainerFactory<ConcurrentMessageListenerContainer<String, String>> kafkaListenerContainerFactory;
 	
-	@Autowired
-	private SimpMessagingTemplate messagingTemplate;
-
-	@Autowired
-	private KafkaListenerContainerFactory<ConcurrentMessageListenerContainer<String, String>> kafkaListenerContainerFactory;
-
-	@Autowired
-	private AlarmRepository alarmRepository;
+	// reposotiry
+	private final AlarmRepository alarmRepository;
+	private final UserRepository userRepository;
+	private final MemberRepository memberRepository;
+	private final AlarmUrlRepository alarmUrlRepository;
 	
-	@Autowired
-	private UserRepository userRepository;
+	// common
+	private final SimpMessagingTemplate messagingTemplate;
+	private final ObjectMapper objectMapper;
 	
-	@Autowired
-	private MemberRepository memberRepository;
-	
-	@Autowired
-	private AlarmUrlRepository alarmUrlRepository;
-	
-	@Autowired
-	private ObjectMapper objectMapper;
-	
-	@Autowired
-	public AlarmService(KafkaTemplate<String, String> kafkaTemplate, KafkaAdmin kafkaAdmin) {
-		this.kafkaTemplate = kafkaTemplate;
-		this.kafkaAdmin = kafkaAdmin;
-	}
-
 	public void sendMessage(String topic, String message) {
 		kafkaTemplate.send(topic, message);
 	}
@@ -97,8 +84,8 @@ public class AlarmService {
 		messagingTemplate.convertAndSend("/topic/task", message);
 	}
 	
-	public List<ResAlarm> getAlarmList(String userId) {
-		List<ResAlarm> result = new ArrayList<>();
+	public ResponseMessage getAlarmList(String userId) {
+		List<ResAlarm> resultList = new ArrayList<>();
 		List<Alarm> alarmList = alarmRepository.findByUserId(userId);
 		if (alarmList.size() > 0) {
 			for (Alarm entity : alarmList) {
@@ -106,18 +93,19 @@ public class AlarmService {
 				resAlarm.setAlarmId(entity.toDto().getAlarmId());
 				resAlarm.setMessage(entity.toDto().getMessage());
 				resAlarm.setCreatedAt(entity.getCreatedAt());
-				result.add(resAlarm);
+				resultList.add(resAlarm);
 			}
 		} 
-		return result;
+		return ResponseMessage.builder().value(resultList).build();
 	}
 	
-	public void deleteAlarm(UUID alarmId) {
+	public ResponseMessage deleteAlarm(UUID alarmId) {
 		try {
 			alarmRepository.deleteById(alarmId);
 		} catch(Exception e) {
 			throw new RuntimeException("시스템 오류가 발생하였습니다.");
 		}
+		return ResponseMessage.builder().build();
 	}
 	
 	public void sendTaskManager(long memberId) {
@@ -132,10 +120,10 @@ public class AlarmService {
 			if (url.isPresent()) {
 				sendAlarm(alarmId, url.get());
 			} else {
-				throw new RuntimeException("시스템 오류가 발생하였습니다.");
+				throw new UnknownException(null);
 			}
 		} else {
-			throw new RuntimeException("시스템 오류가 발생하였습니다.");
+			throw new UnknownException(null);
 		}
 	}
 	
@@ -147,7 +135,7 @@ public class AlarmService {
 		try {
 			result = alarmRepository.saveAndFlush(dto.toEntity()).toDto().getAlarmId();
 		}catch (Exception e) {
-			throw new RuntimeException("시스템 오류가 발생하였습니다.",e);
+			throw new UnknownException(e.getMessage());
 		}
 		return result;
 	}
@@ -164,10 +152,10 @@ public class AlarmService {
 			try {
 				kafkaTemplate.send("User", objectMapper.writeValueAsString(dto));
 			} catch (Exception e) {
-				throw new RuntimeException("시스템 오류가 발생하였습니다.",e);
+				throw new UnknownException(e.getMessage());
 			}
 		} else {
-			throw new RuntimeException("시스템 오류가 발생하였습니다.");
+			throw new UnknownException(null);
 		}
 	}
 	
@@ -175,6 +163,7 @@ public class AlarmService {
 	public void listen(String message) {
 		messagingTemplate.convertAndSend("/topic/messages", message);
 	}
+	
 
 //	public void createTopic(AlarmDto body) {
 //		NewTopic newTopic = new NewTopic(body.getName(), 1, (short) 1);

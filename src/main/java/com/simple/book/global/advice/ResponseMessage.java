@@ -1,4 +1,4 @@
-package com.simple.book.global.util;
+package com.simple.book.global.advice;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -13,4 +13,6 @@ public class ResponseMessage {
 	
 	@Builder.Default
 	private boolean result = true;
+	
+	private Object value;
 }

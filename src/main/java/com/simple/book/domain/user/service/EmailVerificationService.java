@@ -3,7 +3,7 @@ package com.simple.book.domain.user.service;
 import java.sql.Timestamp;
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mail.javamail.JavaMailSender;
@@ -13,11 +13,13 @@ import org.springframework.transaction.annotation.Transactional;
 import org.thymeleaf.TemplateEngine;
 import org.thymeleaf.context.Context;
 
+import com.simple.book.domain.user.dto.EmailVerificationDto;
 import com.simple.book.domain.user.dto.request.EmailVerificationRequestDto;
 import com.simple.book.domain.user.entity.EmailVerification;
 import com.simple.book.domain.user.repository.EmailVerificationRepository;
+import com.simple.book.global.advice.ResponseMessage;
 import com.simple.book.global.config.ApplicationConfig;
-import com.simple.book.global.util.ResponseMessage;
+import com.simple.book.global.exception.UnknownException;
 
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
@@ -34,9 +36,9 @@ public class EmailVerificationService {
 
 	@Autowired
 	private EmailVerificationRepository emailVerificationRepository;
-	
+
 	@Autowired
-    private TemplateEngine templateEngine;
+	private TemplateEngine templateEngine;
 
 	/**
 	 * 이메일 인증 Request
@@ -62,44 +64,48 @@ public class EmailVerificationService {
 //
 //		return ResponseMessage.builder().message("전송 완료").build();
 //	}
-	
+
 	/**
 	 * HTML 기반 이메일 인증
+	 * 
 	 * @param dto
 	 * @return
-	 * @throws MessagingException 
+	 * @throws MessagingException
 	 * @throws RuntimeException
 	 */
-	public ResponseMessage sendVerificationEmail(EmailVerificationRequestDto dto) throws MessagingException {
-		EmailVerificationRequestDto setTokenDto = createVerificationToken(dto);
-		
+	public ResponseMessage sendVerificationEmail(EmailVerificationRequestDto body) throws MessagingException {
+		String token = createVerificationToken(body);
 		MimeMessage message = javaMailSender.createMimeMessage();
 		MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
-		
+
 		Context context = new Context();
-        context.setVariable("name", "User");
-        
-        String htmlContent = templateEngine.process("/email/email_template.html", context);
-        
+		context.setVariable("token", token);
+
+		String htmlContent = templateEngine.process("email/delete_account.html", context);
+
 		try {
-	        helper.setTo(setTokenDto.getEmail());
-	        helper.setFrom("sync@sync-team.co.kr");
-	        helper.setSubject("[sync] 회원가입 인증 입니다.");
-	        helper.setText(htmlContent, true);
+			helper.setTo(body.getEmail());
+			helper.setFrom("sync@sync-team.co.kr");
+			helper.setSubject("[sync] 회원탈퇴 인증 입니다.");
+			helper.setText(htmlContent, true);
 			javaMailSender.send(message);
 		} catch (Exception e) {
-			log.error(e.getStackTrace());
-			throw new RuntimeException(e);
+			throw new UnknownException(e.getMessage());
 		}
 
 		return ResponseMessage.builder().message("전송 완료").build();
 	}
 
-	public EmailVerificationRequestDto createVerificationToken(EmailVerificationRequestDto dto) {
-		String token = UUID.randomUUID().toString();
-		dto.setToken(token);
-		emailVerificationRepository.saveAndFlush(dto.toEntity());
-		return dto;
+	public String createVerificationToken(EmailVerificationRequestDto body) {
+		String token;
+		try {
+			token = String.valueOf(ThreadLocalRandom.current().nextInt(1000, 10000));
+			EmailVerificationDto dto = EmailVerificationDto.builder().token(token).email(body.getEmail()).build();
+			emailVerificationRepository.saveAndFlush(dto.toEntity());
+		} catch (Exception e) {
+			throw new UnknownException(e.getMessage());
+		}
+		return token;
 	}
 
 	/**
@@ -132,9 +138,10 @@ public class EmailVerificationService {
 		long thirtyMinutesInMillis = 30 * 60 * 1000;
 		return currentTime.getTime() - updDate.getTime() >= thirtyMinutesInMillis;
 	}
-	
+
 	/**
 	 * 만료된 인증 정보 삭제
+	 * 
 	 * @throws Exception
 	 */
 	@Transactional
